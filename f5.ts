@@ -5,12 +5,12 @@ import * as program from "commander";
 import * as glob from "glob";
 import * as fs from "fs";
 import * as cp from "child_process";
-import * as verbal from "verbal-expressions";
-import * as bb from "bluebird";
+import * as BBPromise from "bluebird";
 import * as path from "path";
 import spawn = require("cross-spawn-async");
 
-process.on("exit", () => {
+process.on("exit", () => 
+{
     console.log("");
     console.log("=======================================================================================");
     console.log("");
@@ -39,9 +39,8 @@ if (!solution) {
 
     let files = glob.sync(__dirname + "/*.sln", { nodir: true });
 
-    if (files.length === 0) {
-        let message = `No solution file found in ${__dirname}`;
-
+    if (files.length === 0) 
+    {
         console.error(`ERROR: No solution file found in ${__dirname}.`);
 
         process.exit();
@@ -61,7 +60,7 @@ const processConfig =
 
 const executeBuild = () => 
 {
-    return new bb<void>((resolve, reject) => 
+    return new BBPromise<void>((resolve, reject) => 
     {
         const build = cp.exec(`msbuild "${solution}" /verbosity:m`, processConfig, (error) => 
         {
@@ -106,7 +105,7 @@ const executeBuild = () =>
 
 const findStartupProjectPath = () => 
 {
-    return new bb<string>((resolve, reject) => 
+    return new BBPromise<string>((resolve, reject) => 
     {    
         //Startup projects are listed as the first *.csproj in a solution file. Must read the file using cat
         fs.readFile(solution, { encoding: "utf8" }, (error, data) => 
@@ -127,7 +126,7 @@ const findStartupProjectPath = () =>
 
 const host = (projectPath: string) => 
 {
-    return new bb<void>((resolve, reject) => 
+    return new BBPromise<void>((resolve, reject) => 
     {
         if (!shouldHost) 
         {
@@ -182,7 +181,7 @@ const host = (projectPath: string) =>
 
 const finchForward = () => 
 {
-    return new bb<void>((resolve, reject) => 
+    return new BBPromise<void>((resolve, reject) => 
     {
         if (!shouldHost || !finchName) 
         {

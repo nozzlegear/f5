@@ -3,7 +3,7 @@ var program = require("commander");
 var glob = require("glob");
 var fs = require("fs");
 var cp = require("child_process");
-var bb = require("bluebird");
+var BBPromise = require("bluebird");
 var path = require("path");
 var spawn = require("cross-spawn-async");
 process.on("exit", function () {
@@ -30,7 +30,6 @@ if (!solution) {
     console.log("No solution found, looking for one in %s", __dirname);
     var files = glob.sync(__dirname + "/*.sln", { nodir: true });
     if (files.length === 0) {
-        var message = "No solution file found in " + __dirname;
         console.error("ERROR: No solution file found in " + __dirname + ".");
         process.exit();
     }
@@ -43,7 +42,7 @@ var processConfig = {
     env: process.env
 };
 var executeBuild = function () {
-    return new bb(function (resolve, reject) {
+    return new BBPromise(function (resolve, reject) {
         var build = cp.exec("msbuild \"" + solution + "\" /verbosity:m", processConfig, function (error) {
             if (error) {
                 console.log("");
@@ -73,7 +72,7 @@ var executeBuild = function () {
     });
 };
 var findStartupProjectPath = function () {
-    return new bb(function (resolve, reject) {
+    return new BBPromise(function (resolve, reject) {
         //Startup projects are listed as the first *.csproj in a solution file. Must read the file using cat
         fs.readFile(solution, { encoding: "utf8" }, function (error, data) {
             //Find the string containing the first project. It looks like "Path/To/ProjectName.csproj" with quote marks;
@@ -88,7 +87,7 @@ var findStartupProjectPath = function () {
     });
 };
 var host = function (projectPath) {
-    return new bb(function (resolve, reject) {
+    return new BBPromise(function (resolve, reject) {
         if (!shouldHost) {
             resolve();
             return;
@@ -122,7 +121,7 @@ var host = function (projectPath) {
     });
 };
 var finchForward = function () {
-    return new bb(function (resolve, reject) {
+    return new BBPromise(function (resolve, reject) {
         if (!shouldHost || !finchName) {
             resolve();
             return;
