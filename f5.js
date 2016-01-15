@@ -23,14 +23,15 @@ console.log("");
 console.log("=======================================================================================");
 console.log("");
 var port = program["port"] || 62211;
-var solution = program["solution"];
 var shouldHost = program["iis"];
 var finchName = program["finchName"];
+var cwd = process.cwd();
+var solution = program["solution"];
 if (!solution) {
-    console.log("No solution found, looking for one in %s", __dirname);
-    var files = glob.sync(__dirname + "/*.sln", { nodir: true });
+    console.log("No solution found, looking for one in %s", cwd);
+    var files = glob.sync(cwd + "/*.sln", { nodir: true });
     if (files.length === 0) {
-        console.error("ERROR: No solution file found in " + __dirname + ".");
+        console.error("ERROR: No solution file found in " + cwd + ".");
         process.exit();
     }
     solution = files[0];
@@ -38,7 +39,7 @@ if (!solution) {
 console.log("Solution: %s", solution);
 console.log("Port: %s", port);
 var processConfig = {
-    cwd: __dirname,
+    cwd: cwd,
     env: process.env
 };
 var executeBuild = function () {

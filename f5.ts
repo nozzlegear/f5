@@ -29,19 +29,20 @@ console.log("");
 console.log("=======================================================================================");
 console.log("");
 
-let port = program["port"] || 62211;
+const port = program["port"] || 62211;
+const shouldHost: boolean = program["iis"];
+const finchName: string = program["finchName"];
+const cwd = process.cwd();
 let solution: string = program["solution"];
-let shouldHost: boolean = program["iis"];
-let finchName: string = program["finchName"];
 
 if (!solution) {
-    console.log("No solution found, looking for one in %s", __dirname);
+    console.log("No solution found, looking for one in %s", cwd);
 
-    let files = glob.sync(__dirname + "/*.sln", { nodir: true });
+    let files = glob.sync(cwd + "/*.sln", { nodir: true });
 
     if (files.length === 0) 
     {
-        console.error(`ERROR: No solution file found in ${__dirname}.`);
+        console.error(`ERROR: No solution file found in ${cwd}.`);
 
         process.exit();
     }
@@ -54,7 +55,7 @@ console.log("Port: %s", port);
 
 const processConfig = 
 {
-    cwd: __dirname,
+    cwd: cwd,
     env: process.env
 };
 
