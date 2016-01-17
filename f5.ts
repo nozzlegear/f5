@@ -7,7 +7,7 @@ import * as fs from "fs";
 import * as cp from "child_process";
 import * as BBPromise from "bluebird";
 import * as path from "path";
-import spawn = require("cross-spawn-async");
+import spawn = require('cross-spawn-async');
 
 process.on("exit", () => 
 {
@@ -21,7 +21,8 @@ program
     .option("-s, --solution [solution]", "Solution File")
     .option("-p, --port [port]", "Port")
     .option("-i, --iis", "IIS Hosting")
-    .option("-f, --finchName [finchName]", "Finch Forward site name")
+    .option("-f, --finchname [finchName]", "Finch Forward site name")
+    .option("-n, --nobuild", "Skip the build command")
     .usage("f5 -s 'MyApp/Solution.sln' -f Finchname -i")
     .parse(process.argv);
 
@@ -32,6 +33,7 @@ console.log("");
 const port = program["port"] || 62211;
 const shouldHost: boolean = program["iis"];
 const finchName: string = program["finchName"];
+const skipBuild: boolean = program["noBuild"];
 const cwd = process.cwd();
 let solution: string = program["solution"];
 
@@ -59,50 +61,54 @@ const processConfig =
     env: process.env
 };
 
-const executeBuild = () => 
+const executeBuild = () =>  new BBPromise<void>((resolve, reject) => 
 {
-    return new BBPromise<void>((resolve, reject) => 
+    if(skipBuild)
     {
-        const build = cp.exec(`msbuild "${solution}" /verbosity:m`, processConfig, (error) => 
+        resolve();
+        
+        return;
+    }
+    
+    const build = cp.exec(`msbuild "${solution}" /verbosity:m`, processConfig, (error) => 
+    {
+        if (error) 
         {
-            if (error) 
-            {
-                console.log("");
-                console.error(error.message);
-                console.log("");
+            console.log("");
+            console.error(error.message);
+            console.log("");
 
-                process.exit();
+            process.exit();
 
-                reject(error.message);
-            };
-        });
-
-        build.stderr.on("data", (error) => 
-        {
-            process.stderr.write(error);
-        })
-
-        build.stdout.on("data", (data) => 
-        {
-            process.stdout.write(data);
-        })
-
-        build.on("exit", () => 
-        {
-            resolve();
-        });
-
-        process.on("exit", () => 
-        {
-            try {
-                build.kill();
-            }
-            catch (e) {
-                //Swallow
-            }
-        });
+            reject(error.message);
+        };
     });
-};
+
+    build.stderr.on("data", (error) => 
+    {
+        process.stderr.write(error);
+    })
+
+    build.stdout.on("data", (data) => 
+    {
+        process.stdout.write(data);
+    })
+
+    build.on("exit", () => 
+    {
+        resolve();
+    });
+
+    process.on("exit", () => 
+    {
+        try {
+            build.kill();
+        }
+        catch (e) {
+            //Swallow
+        }
+    });
+});
 
 const findStartupProjectPath = () => 
 {

@@ -5,7 +5,7 @@ var fs = require("fs");
 var cp = require("child_process");
 var BBPromise = require("bluebird");
 var path = require("path");
-var spawn = require("cross-spawn-async");
+var spawn = require('cross-spawn-async');
 process.on("exit", function () {
     console.log("");
     console.log("=======================================================================================");
@@ -17,6 +17,7 @@ program
     .option("-p, --port [port]", "Port")
     .option("-i, --iis", "IIS Hosting")
     .option("-f, --finchName [finchName]", "Finch Forward site name")
+    .option("-nb, --noBuild", "Skip the build command")
     .usage("f5 -s 'MyApp/Solution.sln' -f Finchname -i")
     .parse(process.argv);
 console.log("");
@@ -25,6 +26,7 @@ console.log("");
 var port = program["port"] || 62211;
 var shouldHost = program["iis"];
 var finchName = program["finchName"];
+var skipBuild = program["noBuild"];
 var cwd = process.cwd();
 var solution = program["solution"];
 if (!solution) {
@@ -42,36 +44,38 @@ var processConfig = {
     cwd: cwd,
     env: process.env
 };
-var executeBuild = function () {
-    return new BBPromise(function (resolve, reject) {
-        var build = cp.exec("msbuild \"" + solution + "\" /verbosity:m", processConfig, function (error) {
-            if (error) {
-                console.log("");
-                console.error(error.message);
-                console.log("");
-                process.exit();
-                reject(error.message);
-            }
-            ;
-        });
-        build.stderr.on("data", function (error) {
-            process.stderr.write(error);
-        });
-        build.stdout.on("data", function (data) {
-            process.stdout.write(data);
-        });
-        build.on("exit", function () {
-            resolve();
-        });
-        process.on("exit", function () {
-            try {
-                build.kill();
-            }
-            catch (e) {
-            }
-        });
+var executeBuild = function () { return new BBPromise(function (resolve, reject) {
+    if (skipBuild) {
+        resolve();
+        return;
+    }
+    var build = cp.exec("msbuild \"" + solution + "\" /verbosity:m", processConfig, function (error) {
+        if (error) {
+            console.log("");
+            console.error(error.message);
+            console.log("");
+            process.exit();
+            reject(error.message);
+        }
+        ;
     });
-};
+    build.stderr.on("data", function (error) {
+        process.stderr.write(error);
+    });
+    build.stdout.on("data", function (data) {
+        process.stdout.write(data);
+    });
+    build.on("exit", function () {
+        resolve();
+    });
+    process.on("exit", function () {
+        try {
+            build.kill();
+        }
+        catch (e) {
+        }
+    });
+}); };
 var findStartupProjectPath = function () {
     return new BBPromise(function (resolve, reject) {
         //Startup projects are listed as the first *.csproj in a solution file. Must read the file using cat
