@@ -37,11 +37,14 @@ const skipBuild: boolean = program["noBuild"];
 const cwd = process.cwd();
 let solution: string = program["solution"];
 
-if (!solution) {
-    console.log("No solution found, looking for one in %s", cwd);
+if (!solution) 
+{
+    console.log("No solution specified, looking for a solution or project file in %s", cwd);
 
-    let files = glob.sync(cwd + "/*.sln", { nodir: true });
-
+    let solutions = glob.sync(cwd + "/*.sln", {nodir: true});
+    let csprojs = glob.sync(cwd + "/*.csproj", {nodir: true});
+    let files = solutions.concat(csprojs);
+    
     if (files.length === 0) 
     {
         console.error(`ERROR: No solution file found in ${cwd}.`);

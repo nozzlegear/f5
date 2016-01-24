@@ -1,6 +1,6 @@
 {
   "name": "f5",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Runs Visual Studio's /build command and then starts IIS.",
   "main": "f5.js",
   "scripts": {

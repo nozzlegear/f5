@@ -16,8 +16,8 @@ program
     .option("-s, --solution [solution]", "Solution File")
     .option("-p, --port [port]", "Port")
     .option("-i, --iis", "IIS Hosting")
-    .option("-f, --finchName [finchName]", "Finch Forward site name")
-    .option("-nb, --noBuild", "Skip the build command")
+    .option("-f, --finchname [finchName]", "Finch Forward site name")
+    .option("-n, --nobuild", "Skip the build command")
     .usage("f5 -s 'MyApp/Solution.sln' -f Finchname -i")
     .parse(process.argv);
 console.log("");
@@ -30,8 +30,10 @@ var skipBuild = program["noBuild"];
 var cwd = process.cwd();
 var solution = program["solution"];
 if (!solution) {
-    console.log("No solution found, looking for one in %s", cwd);
-    var files = glob.sync(cwd + "/*.sln", { nodir: true });
+    console.log("No solution specified, looking for a solution or project file in %s", cwd);
+    var solutions = glob.sync(cwd + "/*.sln", { nodir: true });
+    var csprojs = glob.sync(cwd + "/*.csproj", { nodir: true });
+    var files = solutions.concat(csprojs);
     if (files.length === 0) {
         console.error("ERROR: No solution file found in " + cwd + ".");
         process.exit();
