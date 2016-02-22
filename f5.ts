@@ -18,6 +18,7 @@ process.on("exit", () =>
 
 program
     .version("1.0.0")
+    .option("restore", "Restores NuGet packages.")
     .option("-s, --solution [solution]", "Solution File")
     .option("-p, --port [port]", "Port")
     .option("-i, --iis", "IIS Hosting")
@@ -35,11 +36,12 @@ const shouldHost: boolean = program["iis"];
 const finchName: string = program["finchName"];
 const skipBuild: boolean = program["noBuild"];
 const cwd = process.cwd();
+const shouldRestore= program["restore"];
 let solution: string = program["solution"];
 
 if (!solution) 
 {
-    console.log("No solution specified, looking for a solution or project file in %s", cwd);
+    console.log("No solution or .csproj file specified, looking for a solution or project file in %s", cwd);
 
     let solutions = glob.sync(cwd + "/*.sln", {nodir: true});
     let csprojs = glob.sync(cwd + "/*.csproj", {nodir: true});
@@ -47,16 +49,13 @@ if (!solution)
     
     if (files.length === 0) 
     {
-        console.error(`ERROR: No solution file found in ${cwd}.`);
+        console.error(`ERROR: No solution or .csproj file found in ${cwd}.`);
 
         process.exit();
     }
 
     solution = files[0];
 }
-
-console.log("Solution: %s", solution);
-console.log("Port: %s", port);
 
 const processConfig = 
 {
@@ -113,28 +112,97 @@ const executeBuild = () =>  new BBPromise<void>((resolve, reject) =>
     });
 });
 
-const findStartupProjectPath = () => 
-{
-    return new BBPromise<string>((resolve, reject) => 
-    {    
-        //Startup projects are listed as the first *.csproj in a solution file. Must read the file using cat
-        fs.readFile(solution, { encoding: "utf8" }, (error, data) => 
-        {
-            //Find the string containing the first project. It looks like "Path/To/ProjectName.csproj" with quote marks;
-            let solutionDir = path.parse(solution).dir;
-            let csprojIndex = data.indexOf(".csproj\"");
-            let pathString = data.substring(0, csprojIndex + ".csproj".length);
-            let quoteIndex = pathString.lastIndexOf("\"");
-            
-            //Get the path between the first quote mark and .csproj
-            pathString = pathString.substr(quoteIndex + 1);
-
-            resolve(path.join(solutionDir, path.parse(pathString).dir));
+const findStartupProjectPath = () =>  new BBPromise<{Directory: string; File: string;}>((resolve, reject) => 
+{    
+    if(solution.indexOf(".csproj") > -1)
+    {
+        resolve({
+            Directory: path.parse(solution).dir,
+            File: solution
         });
-    })
-};
+        
+        return;
+    }
+    
+    //Startup projects are listed as the first *.csproj in a solution file.
+    fs.readFile(solution, { encoding: "utf8" }, (error, data) => 
+    {
+        //Find the string containing the first project. It looks like "Path/To/ProjectName.csproj" with quote marks;
+        let solutionDir = path.parse(solution).dir;
+        let csprojIndex = data.indexOf(".csproj\"");
+        let pathString = data.substring(0, csprojIndex + ".csproj".length);
+        let quoteIndex = pathString.lastIndexOf("\"");
+        
+        //Get the path between the first quote mark and .csproj
+        pathString = pathString.substr(quoteIndex + 1);
+        
+        const projectDirectory = path.join(solutionDir, path.parse(pathString).dir);
+        const projectFile = path.join(solutionDir, pathString); 
 
-const host = (projectPath: string) => 
+        resolve({
+            Directory: projectDirectory,
+            File: projectFile
+        });
+    });
+});
+
+const restorePackages = (location: {Directory: string; File: string;}) => new BBPromise<void>((resolve, reject) =>
+{
+    if(!shouldRestore)
+    {
+        resolve();
+        
+        return;
+    }
+    
+    //Assume there's a packages.config file in the project file's directory, and 
+    //that packages directory is one level above .csproj directory.
+    const packagesDirectory = path.join(location.Directory, "../packages");
+    const configFile = path.join(location.Directory, "packages.config"); 
+     
+    console.log("Restoring packages to %s", packagesDirectory);
+    
+    const restore = cp.exec(`nuget restore -outputdirectory '${packagesDirectory}' -configfile '${configFile}'`, processConfig, (error) =>
+    {
+        if (error) 
+        {
+            console.log("");
+            console.error(error.message);
+            console.log("");
+
+            process.exit();
+
+            reject(error.message);
+        };
+    });
+    
+    restore.stderr.on("data", (error) => 
+    {
+        process.stderr.write(error);
+    })
+
+    restore.stdout.on("data", (data) => 
+    {
+        process.stdout.write(data);
+    })
+
+    restore.on("exit", () => 
+    {
+        resolve();
+    });
+
+    process.on("exit", () => 
+    {
+        try {
+            restore.kill();
+        }
+        catch (e) {
+            //Swallow
+        }
+    });
+});
+
+const host = (location: {Directory: string; File: string;}) => 
 {
     return new BBPromise<void>((resolve, reject) => 
     {
@@ -145,9 +213,9 @@ const host = (projectPath: string) =>
             return;
         };
 
-        console.log("Hosting project at %s", projectPath);
+        console.log("Hosting project at %s", location.Directory);
 
-        const host = spawn(`iisexpress`, [`/path:${projectPath}`, `/port:${port}`], processConfig);
+        const host = spawn(`iisexpress`, [`/path:${location.Directory}`, `/port:${port}`], processConfig);
 
         host.stderr.on("data", (error) => 
         {
@@ -243,4 +311,5 @@ const finchForward = () =>
     });
 };
 
-executeBuild().then(findStartupProjectPath).then(host).then(finchForward);
+//Always restore packages first, because a build will fail without its packages
+findStartupProjectPath().then(restorePackages).then(executeBuild).then(findStartupProjectPath).then(host).then(finchForward);
