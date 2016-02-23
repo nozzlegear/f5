@@ -162,7 +162,7 @@ const restorePackages = (location: {Directory: string; File: string;}) => new BB
      
     console.log("Restoring packages to %s", packagesDirectory);
     
-    const restore = cp.exec(`nuget restore -outputdirectory '${packagesDirectory}' -configfile '${configFile}'`, processConfig, (error) =>
+    const restore = cp.exec(`nuget restore -outputdirectory "${packagesDirectory}" -configfile "${configFile}"`, processConfig, (error) =>
     {
         if (error) 
         {

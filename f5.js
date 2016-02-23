@@ -113,7 +113,7 @@ var restorePackages = function (location) { return new BBPromise(function (resol
     var packagesDirectory = path.join(location.Directory, "../packages");
     var configFile = path.join(location.Directory, "packages.config");
     console.log("Restoring packages to %s", packagesDirectory);
-    var restore = cp.exec("nuget restore -outputdirectory '" + packagesDirectory + "' -configfile '" + configFile + "'", processConfig, function (error) {
+    var restore = cp.exec("nuget restore -outputdirectory \"" + packagesDirectory + "\" -configfile \"" + configFile + "\"", processConfig, function (error) {
         if (error) {
             console.log("");
             console.error(error.message);
