@@ -213,9 +213,13 @@ const host = (location: {Directory: string; File: string;}) =>
             return;
         };
 
-        console.log("Hosting project at %s", location.Directory);
+        //IIS requires the path to use backslashes rather than forward slashes. Using backslashes 
+        //will make IIS throw 404s on any requested URL.
+        const directory = location.Directory.split("/").join("\\");
+        
+        console.log("Hosting project at %s", directory);
 
-        const host = spawn(`iisexpress`, [`/path:${location.Directory}`, `/port:${port}`], processConfig);
+        const host = spawn(`iisexpress`, [`/path:${directory}`, `/port:${port}`], processConfig);
 
         host.stderr.on("data", (error) => 
         {

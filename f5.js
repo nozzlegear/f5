@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+"use strict";
 var program = require("commander");
 var glob = require("glob");
 var fs = require("fs");
@@ -147,8 +148,11 @@ var host = function (location) {
             return;
         }
         ;
-        console.log("Hosting project at %s", location.Directory);
-        var host = spawn("iisexpress", [("/path:" + location.Directory), ("/port:" + port)], processConfig);
+        //IIS requires the path to use backslashes rather than forward slashes. Using backslashes 
+        //will make IIS throw 404s on any requested URL.
+        var directory = location.Directory.split("/").join("\\");
+        console.log("Hosting project at %s", directory);
+        var host = spawn("iisexpress", [("/path:" + directory), ("/port:" + port)], processConfig);
         host.stderr.on("data", function (error) {
             process.stderr.write(error);
             process.exit();
