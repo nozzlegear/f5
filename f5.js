@@ -6,6 +6,8 @@ var fs = require("fs");
 var cp = require("child_process");
 var BBPromise = require("bluebird");
 var path = require("path");
+var parseXml = require("xml-parser");
+var lodash_1 = require("lodash");
 var spawn = require('cross-spawn-async');
 process.on("exit", function () {
     console.log("");
@@ -15,6 +17,8 @@ process.on("exit", function () {
 program
     .version("1.0.0")
     .option("restore", "Restores NuGet packages.")
+    .option("--newMigration [newMigrationName]", "Creates a new EF migration")
+    .option("--targetMigration [targetMigration]", "Upgrades or downgrades the database to the given target migration")
     .option("-s, --solution [solution]", "Solution File")
     .option("-p, --port [port]", "Port")
     .option("-i, --iis", "IIS Hosting")
@@ -31,6 +35,8 @@ var finchName = program["finchName"];
 var skipBuild = program["noBuild"];
 var cwd = process.cwd();
 var shouldRestore = program["restore"];
+var newMigrationName = program["newMigration"];
+var targetMigration = program["targetMigration"];
 var solution = program["solution"];
 if (!solution) {
     console.log("No solution or .csproj file specified, looking for a solution or project file in %s", cwd);
@@ -43,106 +49,179 @@ if (!solution) {
     }
     solution = files[0];
 }
-var processConfig = {
-    cwd: cwd,
-    env: process.env
-};
-var executeBuild = function () { return new BBPromise(function (resolve, reject) {
-    if (skipBuild) {
-        resolve();
-        return;
+var F5;
+(function (F5) {
+    function start() {
+        //Always restore packages first, because a build will fail without its packages
+        findStartupProjectPath()
+            .then(restorePackages)
+            .then(executeBuild)
+            .then(createMigration)
+            .then(restoreMigration)
+            .then(host)
+            .then(finchForward);
     }
-    var build = cp.exec("msbuild \"" + solution + "\" /verbosity:m", processConfig, function (error) {
-        if (error) {
-            console.log("");
-            console.error(error.message);
-            console.log("");
-            process.exit();
-            reject(error.message);
-        }
-        ;
-    });
-    build.stderr.on("data", function (error) {
-        process.stderr.write(error);
-    });
-    build.stdout.on("data", function (data) {
-        process.stdout.write(data);
-    });
-    build.on("exit", function () {
-        resolve();
-    });
-    process.on("exit", function () {
-        try {
-            build.kill();
-        }
-        catch (e) {
-        }
-    });
-}); };
-var findStartupProjectPath = function () { return new BBPromise(function (resolve, reject) {
-    if (solution.indexOf(".csproj") > -1) {
-        resolve({
-            Directory: path.parse(solution).dir,
-            File: solution
+    F5.start = start;
+    var processConfig = {
+        cwd: cwd,
+        env: process.env
+    };
+    var findAssembly = function (location) { return new BBPromise(function (resolve, reject) {
+        //Find the path to the assembly (.dll file)
+        fs.readFile(location.File, { encoding: "utf8" }, function (error, data) {
+            var xml = parseXml(data);
+            var propGroups = lodash_1.filter(xml.root.children, function (node) { return node.name === "PropertyGroup" && lodash_1.some(node.children, function (child) { return child.name === "AssemblyName"; }); });
+            var assemblyName = lodash_1.find(propGroups[0].children, function (node) { return node.name === "AssemblyName"; });
+            resolve(path.join(location.Directory, "bin", assemblyName.content + ".dll"));
         });
-        return;
-    }
-    //Startup projects are listed as the first *.csproj in a solution file.
-    fs.readFile(solution, { encoding: "utf8" }, function (error, data) {
-        //Find the string containing the first project. It looks like "Path/To/ProjectName.csproj" with quote marks;
-        var solutionDir = path.parse(solution).dir;
-        var csprojIndex = data.indexOf(".csproj\"");
-        var pathString = data.substring(0, csprojIndex + ".csproj".length);
-        var quoteIndex = pathString.lastIndexOf("\"");
-        //Get the path between the first quote mark and .csproj
-        pathString = pathString.substr(quoteIndex + 1);
-        var projectDirectory = path.join(solutionDir, path.parse(pathString).dir);
-        var projectFile = path.join(solutionDir, pathString);
-        resolve({
-            Directory: projectDirectory,
-            File: projectFile
+    }); };
+    var findStartupProjectPath = function () { return new BBPromise(function (resolve, reject) {
+        if (solution.indexOf(".csproj") > -1) {
+            var output_1 = {
+                Directory: path.parse(solution).dir,
+                File: solution,
+                AssemblyFile: undefined
+            };
+            findAssembly(output_1).then(function (assemblyFile) {
+                output_1.AssemblyFile = assemblyFile;
+                resolve(output_1);
+            });
+            return;
+        }
+        //Startup projects are listed as the first *.csproj in a solution file.
+        fs.readFile(solution, { encoding: "utf8" }, function (error, data) {
+            //Find the string containing the first project. It looks like "Path/To/ProjectName.csproj" with quote marks;
+            var solutionDir = path.parse(solution).dir;
+            var csprojIndex = data.indexOf(".csproj\"");
+            var pathString = data.substring(0, csprojIndex + ".csproj".length);
+            var quoteIndex = pathString.lastIndexOf("\"");
+            //Get the path between the first quote mark and .csproj
+            pathString = pathString.substr(quoteIndex + 1);
+            var projectDirectory = path.join(solutionDir, path.parse(pathString).dir);
+            var projectFile = path.join(solutionDir, pathString);
+            var output = {
+                Directory: projectDirectory,
+                AssemblyFile: undefined,
+                File: projectFile,
+            };
+            findAssembly(output).then(function (assemblyFile) {
+                output.AssemblyFile = assemblyFile;
+                resolve(output);
+            });
+            resolve(output);
         });
-    });
-}); };
-var restorePackages = function (location) { return new BBPromise(function (resolve, reject) {
-    if (!shouldRestore) {
-        resolve();
-        return;
-    }
-    //Assume there's a packages.config file in the project file's directory, and 
-    //that packages directory is one level above .csproj directory.
-    var packagesDirectory = path.join(location.Directory, "../packages");
-    var configFile = path.join(location.Directory, "packages.config");
-    console.log("Restoring packages to %s", packagesDirectory);
-    var restore = cp.exec("nuget restore -outputdirectory \"" + packagesDirectory + "\" -configfile \"" + configFile + "\"", processConfig, function (error) {
-        if (error) {
-            console.log("");
-            console.error(error.message);
-            console.log("");
-            process.exit();
-            reject(error.message);
+    }); };
+    var executeBuild = function (location) { return new BBPromise(function (resolve, reject) {
+        if (skipBuild) {
+            resolve(location);
+            return;
         }
-        ;
-    });
-    restore.stderr.on("data", function (error) {
-        process.stderr.write(error);
-    });
-    restore.stdout.on("data", function (data) {
-        process.stdout.write(data);
-    });
-    restore.on("exit", function () {
-        resolve();
-    });
-    process.on("exit", function () {
-        try {
-            restore.kill();
+        var build = cp.exec("msbuild \"" + location.File + "\" /verbosity:m", processConfig, function (error) {
+            if (error) {
+                console.log("");
+                console.error(error.message);
+                console.log("");
+                process.exit();
+                reject(error.message);
+            }
+            ;
+        });
+        build.stderr.on("data", function (error) {
+            process.stderr.write(error);
+        });
+        build.stdout.on("data", function (data) {
+            process.stdout.write(data);
+        });
+        build.on("exit", function () {
+            resolve(location);
+        });
+        process.on("exit", function () {
+            try {
+                build.kill();
+            }
+            catch (e) {
+            }
+        });
+    }); };
+    var createMigration = function (location) { return new BBPromise(function (resolve, reject) {
+        if (!newMigrationName) {
+            resolve(location);
+            return;
         }
-        catch (e) {
+        console.log("Creating target migration.", newMigrationName);
+        var replaceSplashes = function (str) {
+            while (str.indexOf("\\") > -1) {
+                str = str.replace("\\", "/");
+            }
+            return str;
+        };
+        var webConfigPath = path.join(location.Directory, "web.config");
+        var exePath = path.join(__dirname, "/bin/EntityFramework.6.1.3/tools/migrate.exe");
+        var command = replaceSplashes(exePath + " \"" + location.AssemblyFile + "\" /startupConfigurationFile=\"" + webConfigPath + "\"");
+        console.log("Migration command: ", command);
+        var migrate = cp.exec(command);
+        migrate.stderr.on("data", function (error) {
+            process.stderr.write(error);
+        });
+        migrate.stdout.on("data", function (data) {
+            process.stdout.write(data);
+        });
+        migrate.on("exit", function () {
+            resolve(location);
+        });
+        process.on("exit", function () {
+            try {
+                migrate.kill();
+            }
+            catch (e) {
+            }
+        });
+        resolve(location);
+    }); };
+    var restoreMigration = function (location) { return new BBPromise(function (resolve, reject) {
+        if (!targetMigration) {
+            resolve(location);
+            return;
         }
-    });
-}); };
-var host = function (location) {
-    return new BBPromise(function (resolve, reject) {
+    }); };
+    var restorePackages = function (location) { return new BBPromise(function (resolve, reject) {
+        if (!shouldRestore) {
+            resolve(location);
+            return;
+        }
+        //Assume there's a packages.config file in the project file's directory, and 
+        //that packages directory is one level above .csproj directory.
+        var packagesDirectory = path.join(location.Directory, "../packages");
+        var configFile = path.join(location.Directory, "packages.config");
+        console.log("Restoring packages to %s", packagesDirectory);
+        var restore = cp.exec("nuget restore -outputdirectory \"" + packagesDirectory + "\" -configfile \"" + configFile + "\"", processConfig, function (error) {
+            if (error) {
+                console.log("");
+                console.error(error.message);
+                console.log("");
+                process.exit();
+                reject(error.message);
+            }
+            ;
+        });
+        restore.stderr.on("data", function (error) {
+            process.stderr.write(error);
+        });
+        restore.stdout.on("data", function (data) {
+            process.stdout.write(data);
+        });
+        restore.on("exit", function () {
+            resolve(location);
+        });
+        process.on("exit", function () {
+            try {
+                restore.kill();
+            }
+            catch (e) {
+            }
+        });
+    }); };
+    var host = function (location) { return new BBPromise(function (resolve, reject) {
         if (!shouldHost) {
             resolve();
             return;
@@ -176,10 +255,8 @@ var host = function (location) {
             catch (e) {
             }
         });
-    });
-};
-var finchForward = function () {
-    return new BBPromise(function (resolve, reject) {
+    }); };
+    var finchForward = function () { return new BBPromise(function (resolve, reject) {
         if (!shouldHost || !finchName) {
             resolve();
             return;
@@ -212,8 +289,7 @@ var finchForward = function () {
                 ;
             }
         });
-    });
-};
-//Always restore packages first, because a build will fail without its packages
-findStartupProjectPath().then(restorePackages).then(executeBuild).then(findStartupProjectPath).then(host).then(finchForward);
+    }); };
+})(F5 = exports.F5 || (exports.F5 = {}));
+F5.start();
 //# sourceMappingURL=f5.js.map
