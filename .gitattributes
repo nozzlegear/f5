@@ -67,3 +67,5 @@
 ###############################################################################
 */bin/* linguist-vendored
 bin/* linguist-vendored
+dist/* linguist-vendored
+*/dist/* linguist-vendored
